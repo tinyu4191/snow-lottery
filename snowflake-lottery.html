@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>雪花抽獎系統</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes snowfall {
+      0% {
+        transform: translateY(-20px) rotate(0deg);
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      90% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0;
+      }
+    }
+    .animate-snowfall {
+      animation: snowfall linear forwards;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // 簡單的圖示組件
+    const Gift = ({ className, size = 24 }) => (
+      <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 12 20 22 4 22 4 12"></polyline>
+        <rect x="2" y="7" width="20" height="5"></rect>
+        <line x1="12" y1="22" x2="12" y2="7"></line>
+        <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+        <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+      </svg>
+    );
+
+    const Trophy = ({ className, size = 24 }) => (
+      <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+        <path d="M4 22h16"></path>
+        <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+        <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+        <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+      </svg>
+    );
+
+    const Sparkles = ({ className, size = 24 }) => (
+      <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+        <path d="M5 3v4"></path>
+        <path d="M19 17v4"></path>
+        <path d="M3 5h4"></path>
+        <path d="M17 19h4"></path>
+      </svg>
+    );
+
+    function SnowflakeLottery() {
+      const [startNum, setStartNum] = useState(1);
+      const [endNum, setEndNum] = useState(100);
+      const [prizes, setPrizes] = useState([
+        { snowflakes: 10, count: 1 }
+      ]);
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [currentPrizeIndex, setCurrentPrizeIndex] = useState(0);
+      const [displayNumber, setDisplayNumber] = useState(null);
+      const [winners, setWinners] = useState([]);
+      const [usedNumbers, setUsedNumbers] = useState(new Set());
+      const [showConfetti, setShowConfetti] = useState(false);
+      const [isSetup, setIsSetup] = useState(true);
+      const [fixedNumbers, setFixedNumbers] = useState([]);
+      const [prizeFixedMapping, setPrizeFixedMapping] = useState({});
+
+      // 從 URL 讀取內定號碼
+      useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const fixed = params.get('fixed');
+        if (fixed) {
+          const numbers = fixed.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+          setFixedNumbers(numbers);
+          console.log('內定號碼:', numbers);
+        }
+      }, []);
+
+      // 計算每個獎項應該使用哪些內定號碼
+      useEffect(() => {
+        if (fixedNumbers.length === 0 || prizes.length === 0) {
+          setPrizeFixedMapping({});
+          return;
+        }
+
+        // 建立獎項索引並按雪花數量排序（從大到小）
+        const sortedPrizes = prizes
+          .map((prize, index) => ({ ...prize, originalIndex: index }))
+          .sort((a, b) => b.snowflakes - a.snowflakes);
+
+        const mapping = {};
+        let fixedIndex = 0;
+
+        // 依照雪花數量從大到小分配內定號碼
+        sortedPrizes.forEach(prize => {
+          const assignedNumbers = [];
+          for (let i = 0; i < prize.count && fixedIndex < fixedNumbers.length; i++) {
+            assignedNumbers.push(fixedNumbers[fixedIndex]);
+            fixedIndex++;
+          }
+          mapping[prize.originalIndex] = assignedNumbers;
+        });
+
+        setPrizeFixedMapping(mapping);
+        console.log('獎項內定分配:', mapping);
+      }, [fixedNumbers, prizes]);
+
+      const addPrize = () => {
+        setPrizes([...prizes, { snowflakes: 1, count: 1 }]);
+      };
+
+      const updatePrize = (index, field, value) => {
+        const newPrizes = [...prizes];
+        newPrizes[index][field] = parseInt(value) || 0;
+        setPrizes(newPrizes);
+      };
+
+      const removePrize = (index) => {
+        setPrizes(prizes.filter((_, i) => i !== index));
+      };
+
+      const startLottery = () => {
+        setIsSetup(false);
+        setWinners([]);
+        setUsedNumbers(new Set());
+        setCurrentPrizeIndex(0);
+      };
+
+      const drawNumber = async () => {
+        if (isDrawing) return;
+        
+        setIsDrawing(true);
+        setShowConfetti(false);
+        
+        // 計算可用號碼
+        const availableNumbers = [];
+        for (let i = startNum; i <= endNum; i++) {
+          if (!usedNumbers.has(i)) {
+            availableNumbers.push(i);
+          }
+        }
+
+        if (availableNumbers.length === 0) {
+          alert('已經沒有可抽取的號碼了！');
+          setIsDrawing(false);
+          return;
+        }
+
+        // 滾動動畫
+        let iterations = 0;
+        const maxIterations = 30;
+        const interval = setInterval(() => {
+          const randomNum = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+          setDisplayNumber(randomNum);
+          iterations++;
+
+          if (iterations >= maxIterations) {
+            clearInterval(interval);
+            
+            // 決定最終中獎號碼：優先使用內定號碼
+            let winningNumber = null;
+            
+            // 獲取當前獎項的內定號碼列表
+            const currentPrizeFixedNumbers = prizeFixedMapping[currentPrizeIndex] || [];
+            
+            // 計算當前獎項已經抽出幾個了
+            const currentPrizeWinners = winners.filter(w => w.prizeIndex === currentPrizeIndex);
+            const currentDrawIndex = currentPrizeWinners.length;
+            
+            // 嘗試使用對應位置的內定號碼
+            if (currentDrawIndex < currentPrizeFixedNumbers.length) {
+              const candidateNumber = currentPrizeFixedNumbers[currentDrawIndex];
+              
+              // 檢查號碼是否合法（在範圍內且未被使用）
+              if (candidateNumber >= startNum && 
+                  candidateNumber <= endNum && 
+                  !usedNumbers.has(candidateNumber)) {
+                winningNumber = candidateNumber;
+              }
+            }
+            
+            // 如果沒有可用的內定號碼，隨機抽取
+            if (!winningNumber) {
+              winningNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+            }
+            
+            setDisplayNumber(winningNumber);
+            
+            setTimeout(() => {
+              setShowConfetti(true);
+              const currentPrize = prizes[currentPrizeIndex];
+              const newWinner = {
+                number: winningNumber,
+                snowflakes: currentPrize.snowflakes,
+                prizeIndex: currentPrizeIndex
+              };
+              
+              setWinners(prev => [...prev, newWinner]);
+              setUsedNumbers(prev => new Set([...prev, winningNumber]));
+              setIsDrawing(false);
+            }, 500);
+          }
+        }, 50 + iterations * 3);
+      };
+
+      const nextPrize = () => {
+        const currentPrize = prizes[currentPrizeIndex];
+        const currentPrizeWinners = winners.filter(w => w.prizeIndex === currentPrizeIndex);
+        
+        if (currentPrizeWinners.length >= currentPrize.count) {
+          if (currentPrizeIndex < prizes.length - 1) {
+            setCurrentPrizeIndex(currentPrizeIndex + 1);
+            setDisplayNumber(null);
+            setShowConfetti(false);
+          }
+        }
+      };
+
+      useEffect(() => {
+        nextPrize();
+      }, [winners]);
+
+      const getCurrentPrizeWinners = () => {
+        return winners.filter(w => w.prizeIndex === currentPrizeIndex);
+      };
+
+      const isCurrentPrizeComplete = () => {
+        const currentPrize = prizes[currentPrizeIndex];
+        return getCurrentPrizeWinners().length >= currentPrize.count;
+      };
+
+      const allPrizesComplete = () => {
+        return prizes.every((prize, index) => {
+          const prizeWinners = winners.filter(w => w.prizeIndex === index);
+          return prizeWinners.length >= prize.count;
+        });
+      };
+
+      if (isSetup) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 p-4 md:p-8">
+            <div className="max-w-2xl mx-auto">
+              <div className="bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-700">
+                <div className="flex items-center gap-3 mb-6">
+                  <Gift className="w-8 h-8 text-blue-400" size={32} />
+                  <h1 className="text-3xl font-bold text-white">雪花抽獎系統</h1>
+                </div>
+
+                <div className="space-y-6">
+                  {/* 號碼範圍設定 */}
+                  <div className="bg-gray-750 rounded-xl p-4 border border-gray-600">
+                    <h2 className="text-lg font-semibold text-blue-300 mb-3">號碼範圍</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-300 mb-2">起始號碼</label>
+                        <input
+                          type="number"
+                          value={startNum}
+                          onChange={(e) => setStartNum(parseInt(e.target.value) || 1)}
+                          className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-300 mb-2">結束號碼</label>
+                        <input
+                          type="number"
+                          value={endNum}
+                          onChange={(e) => setEndNum(parseInt(e.target.value) || 100)}
+                          className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 獎項設定 */}
+                  <div className="bg-gray-750 rounded-xl p-4 border border-gray-600">
+                    <div className="flex justify-between items-center mb-3">
+                      <h2 className="text-lg font-semibold text-blue-300">獎項設定</h2>
+                      <button
+                        onClick={addPrize}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        + 新增獎項
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      {prizes.map((prize, index) => (
+                        <div key={index} className="bg-gray-700 rounded-lg p-3 border border-gray-600">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">雪花數量</label>
+                                <input
+                                  type="number"
+                                  value={prize.snowflakes}
+                                  onChange={(e) => updatePrize(index, 'snowflakes', e.target.value)}
+                                  className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">中獎人數</label>
+                                <input
+                                  type="number"
+                                  value={prize.count}
+                                  onChange={(e) => updatePrize(index, 'count', e.target.value)}
+                                  className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => removePrize(index)}
+                              className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 開始按鈕 */}
+                  <button
+                    onClick={startLottery}
+                    className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-bold text-lg shadow-lg transition-all transform hover:scale-105"
+                  >
+                    開始抽獎
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 p-4 md:p-8">
+          <div className="max-w-4xl mx-auto">
+            {/* 返回設定 */}
+            <button
+              onClick={() => setIsSetup(true)}
+              className="mb-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            >
+              ← 返回設定
+            </button>
+
+            {/* 當前獎項顯示 */}
+            {!allPrizesComplete() && (
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl shadow-2xl p-6 md:p-8 mb-6 border border-blue-400">
+                <div className="text-center">
+                  <Trophy className="w-12 h-12 text-yellow-300 mx-auto mb-3" size={48} />
+                  <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
+                    當前獎項：{prizes[currentPrizeIndex].snowflakes} 雪花
+                  </h2>
+                  <p className="text-blue-100 text-lg">
+                    剩餘名額：{prizes[currentPrizeIndex].count - getCurrentPrizeWinners().length} / {prizes[currentPrizeIndex].count}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 抽獎區域 */}
+            <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 md:p-12 mb-6 border border-gray-700 relative overflow-hidden">
+              {showConfetti && (
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                  {[...Array(30)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="absolute text-3xl animate-snowfall"
+                      style={{
+                        left: `${Math.random() * 100}%`,
+                        top: `-20px`,
+                        animationDelay: `${Math.random() * 2}s`,
+                        animationDuration: `${3 + Math.random() * 2}s`,
+                        opacity: 0.7 + Math.random() * 0.3
+                      }}
+                    >
+                      ❄️
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="text-center relative z-10">
+                {displayNumber !== null ? (
+                  <div className="mb-8">
+                    <div className={`text-7xl md:text-9xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent mb-4 ${showConfetti ? 'animate-bounce' : ''}`}>
+                      {displayNumber}
+                    </div>
+                    {showConfetti && (
+                      <div className="animate-pulse">
+                        <p className="text-3xl md:text-4xl font-bold text-yellow-300 mb-2">❄️ 恭喜中獎！❄️</p>
+                        <p className="text-xl text-blue-300">獲得 {prizes[currentPrizeIndex].snowflakes} 雪花</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mb-8">
+                    <Gift className="w-24 h-24 text-blue-400 mx-auto mb-4" size={96} />
+                    <p className="text-2xl text-gray-400">準備抽獎...</p>
+                  </div>
+                )}
+
+                {!allPrizesComplete() && (
+                  <button
+                    onClick={drawNumber}
+                    disabled={isDrawing || isCurrentPrizeComplete()}
+                    className={`px-8 py-4 rounded-xl font-bold text-xl shadow-lg transition-all transform hover:scale-105 ${
+                      isDrawing || isCurrentPrizeComplete()
+                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white'
+                    }`}
+                  >
+                    {isDrawing ? '抽獎中...' : isCurrentPrizeComplete() ? '當前獎項已抽完' : '開始抽獎'}
+                  </button>
+                )}
+
+                {allPrizesComplete() && (
+                  <div className="text-center">
+                    <p className="text-3xl font-bold text-green-400 mb-4">❄️ 所有獎項已抽完！❄️</p>
+                    <button
+                      onClick={startLottery}
+                      className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-bold text-xl shadow-lg transition-all transform hover:scale-105"
+                    >
+                      重新開始
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 中獎名單 */}
+            {winners.length > 0 && (
+              <div className="bg-gray-800 rounded-2xl shadow-2xl p-6 border border-gray-700">
+                <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                  <Trophy className="text-yellow-400" size={24} />
+                  中獎名單
+                </h3>
+                <div className="space-y-3">
+                  {prizes.map((prize, prizeIndex) => {
+                    const prizeWinners = winners.filter(w => w.prizeIndex === prizeIndex);
+                    if (prizeWinners.length === 0) return null;
+                    
+                    return (
+                      <div key={prizeIndex} className="bg-gray-700 rounded-lg p-4 border border-gray-600">
+                        <h4 className="text-lg font-semibold text-blue-300 mb-2">
+                          {prize.snowflakes} 雪花
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {prizeWinners.map((winner, idx) => (
+                            <span
+                              key={idx}
+                              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-bold"
+                            >
+                              #{winner.number}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SnowflakeLottery />);
+  </script>
+</body>
+</html>
